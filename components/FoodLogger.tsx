@@ -174,7 +174,7 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
         await reader.decodeFromVideoDevice(back.deviceId, videoRef.current!, (result, err) => {
           if (result && active) {
             const text = result.getText();
-            reader.stopContinuousDecode?.();
+            try { (reader as any).reset?.(); } catch {}
             handleBarcode(text);
           }
           // ignore per-frame decode errors (NotFoundException is normal)
@@ -188,7 +188,7 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
 
     return () => {
       active = false;
-      try { readerRef.current?.stopContinuousDecode?.(); } catch {}
+      try { (readerRef.current as any)?.reset?.(); } catch {}
       // Stop video stream tracks
       const v = videoRef.current;
       if (v && v.srcObject) {
