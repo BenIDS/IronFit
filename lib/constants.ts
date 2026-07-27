@@ -1,41 +1,49 @@
 // ═══════════════════════════════════════════════════════════════
 // Shared constants, plan data, and design tokens
+// v1.2 — Bold theme: warmer darks, orange-tinted surfaces
 // ═══════════════════════════════════════════════════════════════
 
 export const C = {
-  bg: "#1A1D1F",
-  surface: "#22262A",
-  card: "#282D31",
-  cardHi: "#30363B",
-  border: "#3A4046",
-  borderHi: "#4A5158",
-  muted: "#8B9299",
-  dim: "#B0B7BE",
-  text: "#E8EAED",
-  textHi: "#F5F7F9",
-  accent: "#7DD87A",
-  accentDim: "#7DD87A22",
-  blue: "#7EC8E3",
-  orange: "#F0A868",
-  purple: "#C89BE0",
-  green: "#7DD87A",
-  amber: "#F5C86B",
-  red: "#E8877C",
+  // ─── Backgrounds (all subtly warmed with a touch of orange) ───
+  bg: "#0F0E0D",         // deep warm charcoal — was #1A1D1F
+  surface: "#1C1917",    // warmer surface — inputs, subtle chips
+  card: "#1F1B18",       // card background, faint warm tone
+  cardHi: "#26211D",     // hover / active card
+  border: "#3A312B",     // warm brown-tinted border (not grey)
+  borderHi: "#4A3F37",   // stronger border
+
+  // ─── Text (unchanged — high contrast) ───
+  muted: "#9A928A",      // warm-tinted muted (was #8B9299)
+  dim: "#C0B8B0",        // warm-tinted dim body (was #B0B7BE)
+  text: "#EFEAE4",       // warm off-white (was #E8EAED)
+  textHi: "#FBF8F4",     // highest emphasis (was #F5F7F9)
+
+  // ─── Bold accent (orange) ───
+  accent: "#FF5B3A",       // primary orange — the star of the show
+  accentDim: "#FF5B3A22",  // 13% for tints
+  accentGlow: "#FF5B3A40", // 25% for glows/shadows
+
+  // ─── Secondary colours (all warmed) ───
+  blue: "#7EC8E3",       // sky blue for water & body (unchanged)
+  orange: "#FF5B3A",     // legacy — points to accent
+  purple: "#C89BE0",     // lavender (Brief) (unchanged)
+  green: "#A8FF5C",      // lime for calories (bumped brighter)
+  amber: "#F5C86B",      // amber for fat (unchanged)
+  red: "#EB5757",        // crisp red for warnings
 };
 
 // Macro colours — used consistently for rings, bars, labels
 export const MACRO_COLORS = {
-  kcal: C.accent,
-  protein: C.orange,
-  carbs: C.blue,
-  fat: C.amber,
+  kcal: C.green,       // lime
+  protein: C.accent,   // orange
+  carbs: C.blue,       // sky
+  fat: C.amber,        // amber
 };
 
 // Auto-derive macro targets from kcal and protein
 export function deriveMacroTargets(kcal_target: number, protein_target_g: number) {
   const proteinKcal = protein_target_g * 4;
   const remaining = Math.max(0, kcal_target - proteinKcal);
-  // 40% carbs / 30% fat of remaining kcal (weighted toward carbs for training days)
   const carbKcal = remaining * 0.60;
   const fatKcal = remaining * 0.40;
   return {
@@ -46,7 +54,7 @@ export function deriveMacroTargets(kcal_target: number, protein_target_g: number
 
 export const PLAN = {
   push: {
-    label: "Push", sub: "Chest · Shoulders · Triceps", color: "#E8877C", icon: "💥",
+    label: "Push", sub: "Chest · Shoulders · Triceps", color: "#EB5757", icon: "💥",
     exercises: [
       { name: "Barbell Bench Press", sets: 4, reps: "6-10", startWeight: 60, rule: "+2.5kg when top of range hit with 1-2 RIR" },
       { name: "Incline DB Press", sets: 4, reps: "8-12", startWeight: 22, rule: "+1kg per DB when top of range hit" },
@@ -68,7 +76,7 @@ export const PLAN = {
     ],
   },
   legs: {
-    label: "Legs", sub: "Quads · Hams · Glutes · Calves", color: "#7DD87A", icon: "🦵",
+    label: "Legs", sub: "Quads · Hams · Glutes · Calves", color: "#A8FF5C", icon: "🦵",
     exercises: [
       { name: "Barbell Back Squat", sets: 4, reps: "6-10", startWeight: 80, rule: "Depth first, weight second. +5kg when clean" },
       { name: "Romanian Deadlift", sets: 4, reps: "8-10", startWeight: 70, rule: "Feel hamstrings stretch. +2.5kg progression" },
@@ -79,7 +87,7 @@ export const PLAN = {
     ],
   },
   home: {
-    label: "Home", sub: "Bodyweight backup session", color: "#F0A868", icon: "🏠",
+    label: "Home", sub: "Bodyweight backup session", color: "#FF5B3A", icon: "🏠",
     exercises: [
       { name: "Push-Ups", sets: 3, reps: "max", startWeight: 0, rule: "Elevate feet when reps > 15" },
       { name: "Bulgarian Split Squat", sets: 3, reps: "10 each leg", startWeight: 0, rule: "Add backpack once easy" },
@@ -117,7 +125,6 @@ export const SCALE = [
 export const MEALS = ["Meal 1", "Snack 1", "Meal 2", "Snack 2", "Meal 3"];
 export const TABS = ["Home", "Train", "Body", "Food", "Brief"];
 
-// Common quick-portion presets (grams). Users can add their own to portion_library.
 export const QUICK_PORTIONS = [
   { label: "30g", grams: 30 },
   { label: "50g", grams: 50 },

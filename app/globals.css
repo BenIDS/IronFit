@@ -1,39 +1,90 @@
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
 
 html, body {
   margin: 0;
   padding: 0;
-  background: #1A1D1F;
-  color: #E8EAED;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0F0E0D;
+  color: #EFEAE4;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.5;
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss02" 1, "ss03" 1; /* Manrope stylistic sets — cleaner numbers */
 }
 
 input, textarea, select, button { font-family: inherit; }
-button { transition: transform 0.1s, opacity 0.15s; cursor: pointer; }
-button:active { transform: scale(0.97); }
+button {
+  transition: transform 0.1s, opacity 0.15s;
+  cursor: pointer;
+}
+button:active { transform: scale(0.96); }
 
+/* Monospace numerals via Space Grotesk (better than JetBrains for display sizes) */
 .num {
-  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  font-family: 'Space Grotesk', 'JetBrains Mono', 'SF Mono', Menlo, monospace;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* Bigger numeric-heavy display class */
+.big-num {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+}
 
-::selection { background: #7DD87A44; }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 #FF5B3A00; }
+  50% { box-shadow: 0 0 24px 0 #FF5B3A40; }
+}
+
+/* Warmer selection */
+::selection { background: #FF5B3A44; color: #FBF8F4; }
 
 a { color: inherit; text-decoration: none; }
 
 .spinner {
   width: 20px; height: 20px;
-  border: 2px solid #3A4046;
-  border-top-color: #7DD87A;
+  border: 2px solid #3A312B;
+  border-top-color: #FF5B3A;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   display: inline-block;
+}
+
+/* Custom scrollbar tint */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #3A312B;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #4A3F37; }
+
+/* Ambient orange glow behind key hero elements (used with .glow class) */
+.glow {
+  position: relative;
+}
+.glow::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: radial-gradient(circle at 20% 30%, #FF5B3A18 0%, transparent 60%);
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
 }
