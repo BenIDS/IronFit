@@ -31,12 +31,14 @@ export default async function LandingPage() {
           background: "#7DD87A", color: "#1A1D1F",
           padding: "14px 20px", borderRadius: 12,
           fontSize: 15, fontWeight: 700, textAlign: "center",
+          textDecoration: "none",
         }}>Sign in</Link>
-        <Link href="/signup" style={{
+        <Link href="/login?mode=signup" style={{
           background: "transparent", color: "#7DD87A",
           border: "1.5px solid #7DD87A",
           padding: "14px 20px", borderRadius: 12,
           fontSize: 15, fontWeight: 700, textAlign: "center",
+          textDecoration: "none",
         }}>Create account</Link>
       </div>
     </main>
