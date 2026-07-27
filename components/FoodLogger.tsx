@@ -7,6 +7,23 @@ import type { OFFProduct } from "@/lib/openfoodfacts";
 import { calculateMacros } from "@/lib/openfoodfacts";
 
 // ═══════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════
+
+type BuilderItem = {
+  id: string;
+  source: "barcode" | "search" | "recent" | "manual";
+  name: string;
+  portion_g?: number | null;
+  barcode?: string | null;
+  kcal?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  raw_description?: string; // for manual entries
+};
+
+// ═══════════════════════════════════════════════════════════════
 // Tab selector chip
 // ═══════════════════════════════════════════════════════════════
 
@@ -18,12 +35,12 @@ function TabRow({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
     { k: "manual", label: "✏ Manual" },
   ];
   return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 18, background: C.surface, borderRadius: 12, padding: 4 }}>
+    <div style={{ display: "flex", gap: 4, marginBottom: 14, background: C.surface, borderRadius: 12, padding: 4 }}>
       {tabs.map(t => (
         <button key={t.k} onClick={() => setTab(t.k)} style={{
-          flex: 1, background: tab === t.k ? C.orange : "transparent",
+          flex: 1, background: tab === t.k ? C.accent : "transparent",
           color: tab === t.k ? C.bg : C.dim, border: "none", borderRadius: 8,
-          padding: "10px 4px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+          padding: "10px 4px", fontSize: 12, fontWeight: 800, cursor: "pointer",
           fontFamily: "inherit",
         }}>{t.label}</button>
       ))}
@@ -32,34 +49,146 @@ function TabRow({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Product review panel — shared UI between scan and search
-// Shows product info, portion input, macro preview, log button
+// Meal builder — persistent bar at the top of the modal
+// Shows running total + item list + Log button
+// ═══════════════════════════════════════════════════════════════
+
+function MealBuilder({
+  items, meal, setMeal, date, setDate, onRemove, onLog, disabled,
+}: {
+  items: BuilderItem[];
+  meal: string;
+  setMeal: (m: string) => void;
+  date: string;
+  setDate: (d: string) => void;
+  onRemove: (id: string) => void;
+  onLog: () => void;
+  disabled: boolean;
+}) {
+  const totals = items.reduce(
+    (acc, it) => ({
+      kcal: acc.kcal + (Number(it.kcal) || 0),
+      protein: acc.protein + (Number(it.protein_g) || 0),
+      carbs: acc.carbs + (Number(it.carbs_g) || 0),
+      fat: acc.fat + (Number(it.fat_g) || 0),
+    }),
+    { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  const empty = items.length === 0;
+
+  return (
+    <div style={{
+      background: empty ? C.surface : C.card,
+      border: `1px solid ${empty ? C.border : C.accent + "66"}`,
+      borderRadius: 16,
+      padding: empty ? "14px 16px" : "16px 18px 18px",
+      marginBottom: 14,
+      transition: "all 0.2s",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: empty ? 0 : 12 }}>
+        <div style={{
+          fontSize: 11, color: empty ? C.muted : C.accent,
+          fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase",
+        }}>
+          {empty ? "Meal Builder" : `${items.length} item${items.length > 1 ? "s" : ""} in meal`}
+        </div>
+        {!empty && (
+          <div className="num" style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
+            <span style={{ color: MACRO_COLORS.kcal }}>{Math.round(totals.kcal)}</span>
+            <span style={{ margin: "0 6px", color: C.border }}>·</span>
+            <span style={{ color: MACRO_COLORS.protein }}>{totals.protein.toFixed(0)}P</span>
+            <span style={{ margin: "0 6px", color: C.border }}>·</span>
+            <span style={{ color: MACRO_COLORS.carbs }}>{totals.carbs.toFixed(0)}C</span>
+            <span style={{ margin: "0 6px", color: C.border }}>·</span>
+            <span style={{ color: MACRO_COLORS.fat }}>{totals.fat.toFixed(0)}F</span>
+          </div>
+        )}
+      </div>
+
+      {empty && (
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
+          Add items from any tab below. They&rsquo;ll combine into one meal log.
+        </div>
+      )}
+
+      {!empty && (
+        <>
+          <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 12 }}>
+            {items.map(it => (
+              <div key={it.id} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 0", borderBottom: `1px solid ${C.border}`,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {it.name}{it.portion_g ? ` — ${it.portion_g}g` : ""}
+                  </div>
+                  <div className="num" style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                    {it.kcal != null && <>{it.kcal} kcal</>}
+                    {it.protein_g != null && <> · {it.protein_g}gP</>}
+                    {it.carbs_g != null && <> · {it.carbs_g}gC</>}
+                    {it.fat_g != null && <> · {it.fat_g}gF</>}
+                  </div>
+                </div>
+                <button onClick={() => onRemove(it.id)} style={{
+                  background: "transparent", border: "none", color: C.muted,
+                  cursor: "pointer", fontSize: 16, padding: "4px 8px",
+                }} aria-label="Remove item">✕</button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Meal</div>
+              <select value={meal} onChange={e => setMeal(e.target.value)} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+                color: C.text, fontSize: 13, fontWeight: 600, padding: "10px 12px",
+                width: "100%", boxSizing: "border-box", fontFamily: "inherit",
+              }}>
+                {MEALS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Date</div>
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ padding: "10px 12px", fontSize: 13 }} />
+            </div>
+          </div>
+
+          <Btn color={C.accent} full onClick={onLog} disabled={disabled} style={{ padding: "14px", fontSize: 14 }}>
+            {disabled ? "Saving…" : `Log meal (${items.length} item${items.length > 1 ? "s" : ""})`}
+          </Btn>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Product review — for adding a product with portion selection
+// Used inline by Scan and Search
 // ═══════════════════════════════════════════════════════════════
 
 function ProductReview({
-  product, source, initialGrams, onSave, onCancel,
+  product, source, onAdd, onCancel,
 }: {
   product: OFFProduct;
   source: "barcode" | "search";
-  initialGrams?: number;
-  onSave: (payload: any) => void;
+  onAdd: (item: BuilderItem) => void;
   onCancel: () => void;
 }) {
-  const [grams, setGrams] = useState<string>(String(initialGrams || product.serving_size_g || 100));
-  const [meal, setMeal] = useState("Meal 1");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-
+  const [grams, setGrams] = useState<string>(String(product.serving_size_g || 100));
   const g = parseFloat(grams) || 0;
   const macros = calculateMacros(product, g);
 
-  const submit = () => {
-    onSave({
-      date, meal,
-      description: `${product.name}${product.brand ? ` (${product.brand})` : ""} — ${g}g`,
-      product_name: product.name,
+  const add = () => {
+    onAdd({
+      id: Math.random().toString(36).slice(2),
+      source,
+      name: product.name + (product.brand ? ` (${product.brand})` : ""),
       portion_g: g,
       barcode: product.barcode,
-      source,
       kcal: macros.kcal,
       protein_g: macros.protein_g,
       carbs_g: macros.carbs_g,
@@ -69,9 +198,9 @@ function ProductReview({
 
   return (
     <div>
-      <Card style={{ padding: 14, display: "flex", gap: 12, alignItems: "center" }}>
+      <Card style={{ padding: 14, display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
         {product.image_url && (
-          <img src={product.image_url} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", background: C.surface }} />
+          <img src={product.image_url} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", background: C.surface }} />
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
@@ -81,24 +210,23 @@ function ProductReview({
 
       <Label>Portion (grams)</Label>
       <Input type="number" inputMode="decimal" value={grams} onChange={e => setGrams(e.target.value)} style={{ marginBottom: 10 }} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginBottom: 14 }}>
         {QUICK_PORTIONS.map(qp => (
           <button key={qp.grams} onClick={() => setGrams(String(qp.grams))} style={{
-            background: g === qp.grams ? C.orange + "22" : C.surface, color: g === qp.grams ? C.orange : C.dim,
-            border: `1px solid ${g === qp.grams ? C.orange : C.border}`, borderRadius: 8,
-            padding: "8px 4px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+            background: g === qp.grams ? C.accent + "22" : C.surface, color: g === qp.grams ? C.accent : C.dim,
+            border: `1px solid ${g === qp.grams ? C.accent : C.border}`, borderRadius: 8,
+            padding: "8px 4px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
           }}>{qp.label}</button>
         ))}
       </div>
       {product.serving_size_g && (
         <button onClick={() => setGrams(String(product.serving_size_g))} style={{
-          background: "transparent", color: C.orange, border: "none", fontSize: 12, cursor: "pointer",
-          marginTop: -14, marginBottom: 14, fontFamily: "inherit", textDecoration: "underline",
+          background: "transparent", color: C.accent, border: "none", fontSize: 12, cursor: "pointer",
+          marginTop: -8, marginBottom: 14, fontFamily: "inherit", textDecoration: "underline",
         }}>Use 1 serving ({product.serving_size_g}g)</button>
       )}
 
-      {/* Macro preview */}
-      <Label>Macros for this portion</Label>
+      <Label>This portion adds</Label>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
         {[
           { l: "kcal", v: macros.kcal, c: MACRO_COLORS.kcal },
@@ -107,23 +235,15 @@ function ProductReview({
           { l: "fat", v: macros.fat_g != null ? `${macros.fat_g}g` : null, c: MACRO_COLORS.fat },
         ].map(m => (
           <div key={m.l} style={{ background: C.surface, borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
-            <div className="num" style={{ fontSize: 16, fontWeight: 700, color: m.c }}>{m.v ?? "—"}</div>
-            <div style={{ fontSize: 10, color: C.muted, marginTop: 3, fontWeight: 500 }}>{m.l}</div>
+            <div className="num" style={{ fontSize: 15, fontWeight: 700, color: m.c }}>{m.v ?? "—"}</div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 3, fontWeight: 700 }}>{m.l}</div>
           </div>
         ))}
       </div>
 
-      <Label>Meal Window</Label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {MEALS.map(m => <Btn key={m} sm color={C.orange} ghost={meal !== m} onClick={() => setMeal(m)}>{m}</Btn>)}
-      </div>
-
-      <Label>Date</Label>
-      <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 20 }} />
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
         <Btn color={C.dim} ghost onClick={onCancel}>Back</Btn>
-        <Btn color={C.orange} onClick={submit}>Log this</Btn>
+        <Btn color={C.accent} onClick={add}>+ Add to meal</Btn>
       </div>
     </div>
   );
@@ -165,7 +285,6 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
         const reader = new zxing.BrowserMultiFormatReader();
         readerRef.current = reader;
 
-        // Get available cameras and pick a back-facing one when possible
         const devices = await zxing.BrowserMultiFormatReader.listVideoInputDevices();
         const back = devices.find(d => /back|environment|rear/i.test(d.label)) || devices[0];
         if (!back) throw new Error("No camera available");
@@ -177,7 +296,6 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
             try { (reader as any).reset?.(); } catch {}
             handleBarcode(text);
           }
-          // ignore per-frame decode errors (NotFoundException is normal)
         });
       } catch (err: any) {
         if (!active) return;
@@ -189,7 +307,6 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
     return () => {
       active = false;
       try { (readerRef.current as any)?.reset?.(); } catch {}
-      // Stop video stream tracks
       const v = videoRef.current;
       if (v && v.srcObject) {
         (v.srcObject as MediaStream).getTracks().forEach(t => t.stop());
@@ -215,7 +332,6 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
             {status === "error" && <>⚠ {error}</>}
           </div>
         )}
-        {/* Aim frame overlay */}
         {status === "scanning" && (
           <div style={{ position: "absolute", inset: "20% 10%", border: `2px solid ${C.accent}`, borderRadius: 12, pointerEvents: "none" }} />
         )}
@@ -228,7 +344,7 @@ function ScanTab({ onProduct }: { onProduct: (product: OFFProduct, source: "barc
       <Label>Or type the barcode</Label>
       <div style={{ display: "flex", gap: 8 }}>
         <Input type="text" inputMode="numeric" placeholder="e.g. 5000112548167" value={manualBarcode} onChange={e => setManualBarcode(e.target.value)} />
-        <Btn color={C.orange} onClick={submitManual} disabled={!manualBarcode.trim()}>Look up</Btn>
+        <Btn color={C.accent} onClick={submitManual} disabled={!manualBarcode.trim()}>Look up</Btn>
       </div>
     </div>
   );
@@ -265,12 +381,12 @@ function SearchTab({ onProduct }: { onProduct: (product: OFFProduct, source: "se
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <Input
           type="search"
-          placeholder="e.g. warburtons crumpets"
+          placeholder="e.g. chicken breast"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") runSearch(); }}
         />
-        <Btn color={C.orange} onClick={runSearch} disabled={query.trim().length < 2 || loading}>
+        <Btn color={C.accent} onClick={runSearch} disabled={query.trim().length < 2 || loading}>
           {loading ? "…" : "Go"}
         </Btn>
       </div>
@@ -288,7 +404,7 @@ function SearchTab({ onProduct }: { onProduct: (product: OFFProduct, source: "se
       )}
 
       {!loading && results.length > 0 && (
-        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+        <div style={{ maxHeight: 380, overflowY: "auto" }}>
           {results.map((p, i) => (
             <button key={i} onClick={() => onProduct(p, "search")} style={{
               display: "flex", gap: 12, alignItems: "center", width: "100%",
@@ -302,7 +418,7 @@ function SearchTab({ onProduct }: { onProduct: (product: OFFProduct, source: "se
                 <div style={{ fontSize: 11, color: C.muted, marginTop: 3, display: "flex", gap: 10 }}>
                   {p.brand && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>{p.brand}</span>}
                   {p.kcal_per_100g != null && <span className="num">{Math.round(p.kcal_per_100g)}kcal/100g</span>}
-                  {p.protein_per_100g != null && <span className="num" style={{ color: C.orange }}>{p.protein_per_100g}gP</span>}
+                  {p.protein_per_100g != null && <span className="num" style={{ color: MACRO_COLORS.protein }}>{p.protein_per_100g}gP</span>}
                 </div>
               </div>
             </button>
@@ -313,7 +429,7 @@ function SearchTab({ onProduct }: { onProduct: (product: OFFProduct, source: "se
       {!searched && (
         <div style={{ textAlign: "center", padding: 40, color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
           Type at least 2 characters and hit Go.<br />
-          Powered by Open Food Facts (UK).
+          Powered by Open Food Facts.
         </div>
       )}
     </div>
@@ -321,34 +437,41 @@ function SearchTab({ onProduct }: { onProduct: (product: OFFProduct, source: "se
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Recent tab — quick re-log from the user's last unique meals
+// Recent tab — add items from previously logged meals to builder
 // ═══════════════════════════════════════════════════════════════
 
-function RecentTab({ recentFoods, onQuickLog }: { recentFoods: any[]; onQuickLog: (f: any) => void }) {
+function RecentTab({ recentFoods, onAdd }: { recentFoods: any[]; onAdd: (item: BuilderItem) => void }) {
   if (recentFoods.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: 40, color: C.dim, fontSize: 14, lineHeight: 1.5 }}>
         No recent meals yet.<br />
-        Log a few meals first, then they&rsquo;ll appear here for quick re-logging.
+        Log a few meals first, then they&rsquo;ll appear here.
       </div>
     );
   }
   return (
     <div>
       <div style={{ fontSize: 12, color: C.muted, marginBottom: 12, lineHeight: 1.5 }}>
-        Tap to re-log for today. Same meal window, same portion.
+        Tap to add to the current meal.
       </div>
       {recentFoods.map((f, i) => (
-        <button key={i} onClick={() => onQuickLog(f)} style={{
+        <button key={i} onClick={() => onAdd({
+          id: Math.random().toString(36).slice(2),
+          source: "recent",
+          name: f.product_name || f.description,
+          portion_g: f.portion_g,
+          barcode: f.barcode,
+          kcal: f.kcal,
+          protein_g: f.protein_g,
+          carbs_g: f.carbs_g,
+          fat_g: f.fat_g,
+        })} style={{
           display: "block", width: "100%",
           background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
           padding: 12, marginBottom: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>
-              {f.product_name || f.description}
-            </div>
-            <div style={{ fontSize: 11, color: C.orange, fontWeight: 700 }}>{f.meal}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {f.product_name || f.description}
           </div>
           <div style={{ fontSize: 11, color: C.muted, display: "flex", gap: 10 }}>
             {f.kcal != null && <span className="num">{f.kcal} kcal</span>}
@@ -363,69 +486,68 @@ function RecentTab({ recentFoods, onQuickLog }: { recentFoods: any[]; onQuickLog
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Manual tab — free-text entry with all 4 macros
+// Manual tab — free-text entry, adds to builder
 // ═══════════════════════════════════════════════════════════════
 
-function ManualTab({ onSave }: { onSave: (payload: any) => void }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [meal, setMeal] = useState("Meal 1");
+function ManualTab({ onAdd }: { onAdd: (item: BuilderItem) => void }) {
   const [desc, setDesc] = useState("");
   const [kcal, setKcal] = useState("");
   const [protein, setProtein] = useState("");
   const [carbs, setCarbs] = useState("");
   const [fat, setFat] = useState("");
 
-  const submit = () => onSave({
-    date, meal, description: desc,
-    product_name: desc.split(",")[0].trim() || desc,
-    source: "manual",
-    kcal: kcal ? parseInt(kcal) : null,
-    protein_g: protein ? parseFloat(protein) : null,
-    carbs_g: carbs ? parseFloat(carbs) : null,
-    fat_g: fat ? parseFloat(fat) : null,
-  });
+  const canAdd = desc.trim().length > 0;
+
+  const add = () => {
+    onAdd({
+      id: Math.random().toString(36).slice(2),
+      source: "manual",
+      name: desc.split(",")[0].trim() || desc,
+      raw_description: desc,
+      kcal: kcal ? parseInt(kcal) : null,
+      protein_g: protein ? parseFloat(protein) : null,
+      carbs_g: carbs ? parseFloat(carbs) : null,
+      fat_g: fat ? parseFloat(fat) : null,
+    });
+    // reset
+    setDesc(""); setKcal(""); setProtein(""); setCarbs(""); setFat("");
+  };
 
   return (
     <div>
-      <Label>Date</Label>
-      <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 14 }} />
-      <Label>Meal Window</Label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {MEALS.map(m => <Btn key={m} sm color={C.orange} ghost={meal !== m} onClick={() => setMeal(m)}>{m}</Btn>)}
-      </div>
       <Label>What did you eat?</Label>
       <textarea
-        placeholder="e.g. 200g chicken, rice, broccoli"
+        placeholder="e.g. 200g chicken breast"
         value={desc}
         onChange={e => setDesc(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: 80, resize: "none", marginBottom: 16, fontFamily: "inherit" }}
+        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: 60, resize: "none", marginBottom: 16, fontFamily: "inherit" }}
       />
       <Label>Macros</Label>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
         <div>
-          <div style={{ fontSize: 11, color: MACRO_COLORS.kcal, marginBottom: 4, fontWeight: 500 }}>Calories (kcal)</div>
+          <div style={{ fontSize: 11, color: MACRO_COLORS.kcal, marginBottom: 4, fontWeight: 700 }}>Calories</div>
           <Input type="number" inputMode="numeric" value={kcal} onChange={e => setKcal(e.target.value)} placeholder="—" />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: MACRO_COLORS.protein, marginBottom: 4, fontWeight: 500 }}>Protein (g)</div>
+          <div style={{ fontSize: 11, color: MACRO_COLORS.protein, marginBottom: 4, fontWeight: 700 }}>Protein (g)</div>
           <Input type="number" inputMode="decimal" value={protein} onChange={e => setProtein(e.target.value)} placeholder="—" />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: MACRO_COLORS.carbs, marginBottom: 4, fontWeight: 500 }}>Carbs (g)</div>
+          <div style={{ fontSize: 11, color: MACRO_COLORS.carbs, marginBottom: 4, fontWeight: 700 }}>Carbs (g)</div>
           <Input type="number" inputMode="decimal" value={carbs} onChange={e => setCarbs(e.target.value)} placeholder="—" />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: MACRO_COLORS.fat, marginBottom: 4, fontWeight: 500 }}>Fat (g)</div>
+          <div style={{ fontSize: 11, color: MACRO_COLORS.fat, marginBottom: 4, fontWeight: 700 }}>Fat (g)</div>
           <Input type="number" inputMode="decimal" value={fat} onChange={e => setFat(e.target.value)} placeholder="—" />
         </div>
       </div>
-      <Btn color={C.orange} full onClick={submit} style={{ padding: 16, fontSize: 15 }}>Save Meal</Btn>
+      <Btn color={C.accent} full onClick={add} disabled={!canAdd} style={{ padding: 14, fontSize: 14 }}>+ Add to meal</Btn>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Main FoodLogger modal
+// Main FoodLogger — persistent meal builder + tabs
 // ═══════════════════════════════════════════════════════════════
 
 export function FoodLogger({ onSave, onClose, recentFoods, initialTab = "recent" }: {
@@ -435,45 +557,99 @@ export function FoodLogger({ onSave, onClose, recentFoods, initialTab = "recent"
   initialTab?: string;
 }) {
   const [tab, setTab] = useState(initialTab);
-  const [selectedProduct, setSelectedProduct] = useState<{ product: OFFProduct; source: "barcode" | "search" } | null>(null);
+  const [items, setItems] = useState<BuilderItem[]>([]);
+  const [pendingProduct, setPendingProduct] = useState<{ product: OFFProduct; source: "barcode" | "search" } | null>(null);
+  const [meal, setMeal] = useState("Meal 1");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
 
-  const handleProductSelect = (product: OFFProduct, source: "barcode" | "search") => {
-    setSelectedProduct({ product, source });
+  const addItem = (item: BuilderItem) => {
+    setItems(prev => [...prev, item]);
+    setPendingProduct(null);
   };
 
-  const quickLog = (f: any) => {
-    // Re-log this meal for today, keeping same portion and macros
+  const removeItem = (id: string) => {
+    setItems(prev => prev.filter(it => it.id !== id));
+  };
+
+  const handleProductSelect = (product: OFFProduct, source: "barcode" | "search") => {
+    setPendingProduct({ product, source });
+  };
+
+  const logMeal = () => {
+    if (items.length === 0) return;
+    setSaving(true);
+
+    // Build combined description from item names
+    const names = items.map(it => it.name.split(" — ")[0].split(" (")[0]);
+    const description = items.length === 1
+      ? items[0].raw_description || `${names[0]}${items[0].portion_g ? ` — ${items[0].portion_g}g` : ""}`
+      : `${names.join(", ")} — mixed meal`;
+
+    // Sum macros
+    const totals = items.reduce(
+      (acc, it) => ({
+        kcal: acc.kcal + (Number(it.kcal) || 0),
+        protein: acc.protein + (Number(it.protein_g) || 0),
+        carbs: acc.carbs + (Number(it.carbs_g) || 0),
+        fat: acc.fat + (Number(it.fat_g) || 0),
+      }),
+      { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+
+    // Sum portion when meaningful (all items have portion_g)
+    const totalPortion = items.every(it => it.portion_g != null)
+      ? items.reduce((s, it) => s + (it.portion_g || 0), 0)
+      : null;
+
+    // Source: 'multi' if mixed, else the sole source
+    const sources = new Set(items.map(it => it.source));
+    const source = sources.size > 1 ? "multi" : items[0].source;
+
+    // Product name: first item's name, or 'Mixed meal' if many
+    const product_name = items.length === 1 ? items[0].name : "Mixed meal";
+
+    // Barcode only when single-item barcode
+    const barcode = items.length === 1 ? items[0].barcode : null;
+
     onSave({
-      date: new Date().toISOString().slice(0, 10),
-      meal: f.meal,
-      description: f.description,
-      product_name: f.product_name,
-      portion_g: f.portion_g,
-      barcode: f.barcode,
-      source: "recent",
-      kcal: f.kcal,
-      protein_g: f.protein_g,
-      carbs_g: f.carbs_g,
-      fat_g: f.fat_g,
+      date, meal,
+      description,
+      product_name,
+      portion_g: totalPortion,
+      barcode,
+      source,
+      kcal: Math.round(totals.kcal) || null,
+      protein_g: Math.round(totals.protein * 10) / 10 || null,
+      carbs_g: Math.round(totals.carbs * 10) / 10 || null,
+      fat_g: Math.round(totals.fat * 10) / 10 || null,
     });
   };
 
   return (
-    <Modal onClose={onClose} title={selectedProduct ? "Confirm Portion" : "Log Meal"}>
-      {selectedProduct ? (
+    <Modal onClose={onClose} title={pendingProduct ? "Confirm portion" : "Log meal"}>
+      {pendingProduct ? (
         <ProductReview
-          product={selectedProduct.product}
-          source={selectedProduct.source}
-          onSave={(p) => { onSave(p); setSelectedProduct(null); }}
-          onCancel={() => setSelectedProduct(null)}
+          product={pendingProduct.product}
+          source={pendingProduct.source}
+          onAdd={addItem}
+          onCancel={() => setPendingProduct(null)}
         />
       ) : (
         <>
+          <MealBuilder
+            items={items}
+            meal={meal} setMeal={setMeal}
+            date={date} setDate={setDate}
+            onRemove={removeItem}
+            onLog={logMeal}
+            disabled={saving}
+          />
           <TabRow tab={tab} setTab={setTab} />
           {tab === "scan" && <ScanTab onProduct={handleProductSelect} />}
           {tab === "search" && <SearchTab onProduct={handleProductSelect} />}
-          {tab === "recent" && <RecentTab recentFoods={recentFoods} onQuickLog={quickLog} />}
-          {tab === "manual" && <ManualTab onSave={onSave} />}
+          {tab === "recent" && <RecentTab recentFoods={recentFoods} onAdd={addItem} />}
+          {tab === "manual" && <ManualTab onAdd={addItem} />}
         </>
       )}
     </Modal>
