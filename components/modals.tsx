@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Btn, Input, Label, Card, Modal, mono } from "./ui";
-import { C, PLAN, SCALE, MEALS, EXCLUDABLE, FOOD_PLAN } from "@/lib/constants";
+import { Btn, Input, Label, Card, Modal } from "./ui";
+import { C, PLAN, SCALE, MEALS, EXCLUDABLE, MACRO_COLORS } from "@/lib/constants";
 
 // ═══════════════════════════════════════════════════════════════
 // WORKOUT FORM — with per-set logging
@@ -25,11 +25,7 @@ export function WorkoutForm({ onSave, onClose, workouts }: any) {
       initial[exDef.name] = {
         sets: Array.from({ length: targetSets }, (_, i) => {
           const lastSet = lastLog?.setLog?.[i];
-          return {
-            reps: "",
-            weight: lastSet?.weight ? String(lastSet.weight) : "",
-            rir: "",
-          };
+          return { reps: "", weight: lastSet?.weight ? String(lastSet.weight) : "", rir: "" };
         }),
         notes: "",
       };
@@ -211,97 +207,6 @@ export function BodyForm({ onSave, onClose }: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// FOOD FORM
-// ═══════════════════════════════════════════════════════════════
-
-export function FoodForm({ onSave, onClose }: any) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [meal, setMeal] = useState("Meal 1");
-  const [desc, setDesc] = useState("");
-  const [protein, setProtein] = useState("");
-  const [kcal, setKcal] = useState("");
-  const submit = () => onSave({
-    date, meal, description: desc,
-    protein_g: protein ? parseFloat(protein) : null,
-    kcal: kcal ? parseInt(kcal) : null,
-  });
-  return (
-    <Modal onClose={onClose} title="Log Meal">
-      <Label>Date</Label>
-      <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 18 }} />
-      <Label>Meal Window</Label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-        {MEALS.map(m => <Btn key={m} sm color={C.orange} ghost={meal !== m} onClick={() => setMeal(m)}>{m}</Btn>)}
-      </div>
-      <Label>What did you eat?</Label>
-      <textarea placeholder="e.g. 200g chicken, rice, broccoli" value={desc} onChange={e => setDesc(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: 100, resize: "none", marginBottom: 18, fontFamily: "inherit" }} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 22 }}>
-        <div><Label>Protein (g)</Label><Input type="number" placeholder="e.g. 45" value={protein} onChange={e => setProtein(e.target.value)} /></div>
-        <div><Label>Calories</Label><Input type="number" placeholder="e.g. 480" value={kcal} onChange={e => setKcal(e.target.value)} /></div>
-      </div>
-      <Btn color={C.orange} full onClick={submit} style={{ padding: 16, fontSize: 15 }}>Save Meal</Btn>
-    </Modal>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// PROFILE FORM
-// ═══════════════════════════════════════════════════════════════
-
-const PROFILE_FIELDS: any[] = [
-  { k: "name", l: "Name", t: "text" },
-  { k: "age", l: "Age", t: "number", u: "yrs" },
-  { k: "sex", l: "Sex", t: "select", opts: ["Male", "Female", "Other"] },
-  { k: "height_cm", l: "Height", t: "number", u: "cm" },
-  { k: "current_weight_kg", l: "Current Weight", t: "number", u: "kg" },
-  { k: "goal_weight_kg", l: "Goal Weight", t: "number", u: "kg" },
-  { k: "primary_goal", l: "Primary Goal", t: "select", opts: ["Fat Loss", "Maintain", "Build Muscle", "Recomp"] },
-  { k: "activity_level", l: "Activity Level", t: "select", opts: ["Sedentary", "Light", "Moderate", "Very Active", "Athlete"] },
-  { k: "training_experience", l: "Training Experience", t: "select", opts: ["Beginner", "Intermediate", "Advanced"] },
-  { k: "step_goal", l: "Daily Step Goal", t: "number" },
-  { k: "avg_sleep_hrs", l: "Avg Sleep", t: "number", u: "hrs" },
-  { k: "kcal_target", l: "Daily Calorie Target", t: "number", u: "kcal" },
-  { k: "protein_target_g", l: "Daily Protein Target", t: "number", u: "g" },
-  { k: "hydration_target_ml", l: "Daily Water Target", t: "number", u: "ml" },
-  { k: "phase_name", l: "Phase Name", t: "text" },
-  { k: "phase_goal_label", l: "Phase Goal", t: "text" },
-  { k: "phase_goal_date", l: "Phase Goal Date", t: "date" },
-  { k: "injuries", l: "Injuries / Limitations", t: "textarea" },
-  { k: "notes", l: "Notes for AI", t: "textarea" },
-];
-
-export function ProfileForm({ profile, onSave, onClose }: any) {
-  const [p, setP] = useState<any>(profile || {});
-  const upd = (k: string, v: any) => setP((prev: any) => ({ ...prev, [k]: v }));
-  return (
-    <Modal onClose={onClose} title="Profile">
-      <div style={{ fontSize: 14, color: C.dim, marginBottom: 20, lineHeight: 1.5 }}>
-        Included in every Brief export so the AI can give you advice that fits your body and goals.
-      </div>
-      {PROFILE_FIELDS.map(f => (
-        <div key={f.k} style={{ marginBottom: 14 }}>
-          <Label>{f.l} {f.u && <span style={{ color: C.border }}>({f.u})</span>}</Label>
-          {f.t === "select" ? (
-            <select value={p[f.k] || ""} onChange={e => upd(f.k, e.target.value)}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: "inherit", fontSize: 15, padding: "12px 14px", width: "100%", boxSizing: "border-box" }}>
-              <option value="">— select —</option>
-              {f.opts.map((o: string) => <option key={o} value={o}>{o}</option>)}
-            </select>
-          ) : f.t === "textarea" ? (
-            <textarea value={p[f.k] || ""} onChange={e => upd(f.k, e.target.value)}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: f.k === "notes" ? 100 : 70, resize: "none", fontFamily: "inherit" }} />
-          ) : (
-            <Input type={f.t} step={f.t === "number" ? "0.1" : undefined} value={p[f.k] || ""} onChange={e => upd(f.k, e.target.value)} />
-          )}
-        </div>
-      ))}
-      <Btn color={C.accent} full onClick={() => onSave(p)} style={{ padding: 16, fontSize: 15, marginTop: 10 }}>Save Profile</Btn>
-    </Modal>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
 // CUSTOMISE MODAL
 // ═══════════════════════════════════════════════════════════════
 
@@ -313,7 +218,7 @@ export function CustomiseModal({ prefs, onSave, onClose }: any) {
   return (
     <Modal onClose={onClose} title="Customise Plan">
       <div style={{ fontSize: 14, color: C.dim, marginBottom: 20, lineHeight: 1.5 }}>
-        Exclude ingredients you don't like or can't get. Meals containing those will be hidden from your plan.
+        Exclude ingredients you don&rsquo;t like or can&rsquo;t get. Meals containing those will be hidden from your plan.
       </div>
       <Label>Exclude Ingredients</Label>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
@@ -354,15 +259,18 @@ export function RecipeModal({ meal, mealType, onClose, onLog }: any) {
   if (!meal) return null;
   return (
     <Modal onClose={onClose} title={meal.name}>
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        <div style={{ background: C.surface, padding: "12px 14px", borderRadius: 12, flex: 1, textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>CALORIES</div>
-          <div className="num" style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{meal.kcal}</div>
-        </div>
-        <div style={{ background: C.surface, padding: "12px 14px", borderRadius: 12, flex: 1, textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: C.orange, fontWeight: 500 }}>PROTEIN</div>
-          <div className="num" style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{meal.protein}g</div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
+        {[
+          { l: "kcal", v: meal.kcal, c: MACRO_COLORS.kcal },
+          { l: "protein", v: `${meal.protein}g`, c: MACRO_COLORS.protein },
+          { l: "carbs", v: meal.carbs != null ? `${meal.carbs}g` : "—", c: MACRO_COLORS.carbs },
+          { l: "fat", v: meal.fat != null ? `${meal.fat}g` : "—", c: MACRO_COLORS.fat },
+        ].map(m => (
+          <div key={m.l} style={{ background: C.surface, padding: "10px 8px", borderRadius: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: m.c, fontWeight: 500 }}>{m.l.toUpperCase()}</div>
+            <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v}</div>
+          </div>
+        ))}
       </div>
       <Label>Ingredients</Label>
       <div style={{ background: C.surface, borderRadius: 12, padding: 16, marginBottom: 18 }}>
@@ -393,7 +301,7 @@ export function RecipeModal({ meal, mealType, onClose, onLog }: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PHOTO LOGGER — with AI analysis
+// PHOTO LOGGER — AI meal photo analysis
 // ═══════════════════════════════════════════════════════════════
 
 async function compressImage(file: File): Promise<{ dataUrl: string; base64: string; blob: Blob }> {
@@ -441,6 +349,8 @@ export function PhotoLogger({ onSave, onClose }: any) {
   const [editedDesc, setEditedDesc] = useState("");
   const [editedKcal, setEditedKcal] = useState("");
   const [editedProtein, setEditedProtein] = useState("");
+  const [editedCarbs, setEditedCarbs] = useState("");
+  const [editedFat, setEditedFat] = useState("");
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -473,6 +383,8 @@ export function PhotoLogger({ onSave, onClose }: any) {
       setEditedDesc(`${result.name} — ${(result.ingredients || []).join(", ")}`);
       setEditedKcal(String(result.estimated_kcal || ""));
       setEditedProtein(String(result.estimated_protein_g || ""));
+      setEditedCarbs(String(result.estimated_carbs_g || ""));
+      setEditedFat(String(result.estimated_fat_g || ""));
       setStep("review");
     } catch (err: any) {
       setError(`Analysis failed: ${err.message || "unknown error"}`);
@@ -484,8 +396,12 @@ export function PhotoLogger({ onSave, onClose }: any) {
     onSave({
       date, meal,
       description: editedDesc,
+      product_name: analysis?.name || null,
+      source: "ai-photo",
       protein_g: editedProtein ? parseFloat(editedProtein) : null,
       kcal: editedKcal ? parseInt(editedKcal) : null,
+      carbs_g: editedCarbs ? parseFloat(editedCarbs) : null,
+      fat_g: editedFat ? parseFloat(editedFat) : null,
       photoBlob: photo.blob,
       ai_analysis: analysis ? {
         confidence: analysis.overall_confidence,
@@ -499,11 +415,11 @@ export function PhotoLogger({ onSave, onClose }: any) {
   const confColor = (c: string) => c === "high" ? C.green : c === "medium" ? C.amber : C.red;
 
   return (
-    <Modal onClose={onClose} title="📷 Photo Log">
+    <Modal onClose={onClose} title="📷 AI Photo Log">
       {step === "select" && (
         <>
           <div style={{ fontSize: 14, color: C.dim, marginBottom: 18, lineHeight: 1.5 }}>
-            Snap or upload a photo of your meal. AI identifies ingredients, estimates macros, and matches your plan.
+            Snap or upload a meal photo. AI identifies ingredients, estimates macros, and matches your plan.
           </div>
           {!photo ? (
             <label style={{ display: "block", background: C.surface, border: `2px dashed ${C.border}`, borderRadius: 14, padding: "48px 24px", textAlign: "center", cursor: "pointer", marginBottom: 18 }}>
@@ -561,9 +477,23 @@ export function PhotoLogger({ onSave, onClose }: any) {
               ))}
             </Card>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-            <div><Label>Calories</Label><Input type="number" value={editedKcal} onChange={e => setEditedKcal(e.target.value)} /></div>
-            <div><Label>Protein (g)</Label><Input type="number" value={editedProtein} onChange={e => setEditedProtein(e.target.value)} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: MACRO_COLORS.kcal, marginBottom: 4, fontWeight: 500 }}>Calories</div>
+              <Input type="number" value={editedKcal} onChange={e => setEditedKcal(e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: MACRO_COLORS.protein, marginBottom: 4, fontWeight: 500 }}>Protein (g)</div>
+              <Input type="number" value={editedProtein} onChange={e => setEditedProtein(e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: MACRO_COLORS.carbs, marginBottom: 4, fontWeight: 500 }}>Carbs (g)</div>
+              <Input type="number" value={editedCarbs} onChange={e => setEditedCarbs(e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: MACRO_COLORS.fat, marginBottom: 4, fontWeight: 500 }}>Fat (g)</div>
+              <Input type="number" value={editedFat} onChange={e => setEditedFat(e.target.value)} />
+            </div>
           </div>
           <Label>Date</Label>
           <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 14 }} />

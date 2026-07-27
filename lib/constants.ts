@@ -23,6 +23,27 @@ export const C = {
   red: "#E8877C",
 };
 
+// Macro colours — used consistently for rings, bars, labels
+export const MACRO_COLORS = {
+  kcal: C.accent,
+  protein: C.orange,
+  carbs: C.blue,
+  fat: C.amber,
+};
+
+// Auto-derive macro targets from kcal and protein
+export function deriveMacroTargets(kcal_target: number, protein_target_g: number) {
+  const proteinKcal = protein_target_g * 4;
+  const remaining = Math.max(0, kcal_target - proteinKcal);
+  // 40% carbs / 30% fat of remaining kcal (weighted toward carbs for training days)
+  const carbKcal = remaining * 0.60;
+  const fatKcal = remaining * 0.40;
+  return {
+    carb_target_g: Math.round(carbKcal / 4),
+    fat_target_g: Math.round(fatKcal / 9),
+  };
+}
+
 export const PLAN = {
   push: {
     label: "Push", sub: "Chest · Shoulders · Triceps", color: "#E8877C", icon: "💥",
@@ -96,6 +117,16 @@ export const SCALE = [
 export const MEALS = ["Meal 1", "Snack 1", "Meal 2", "Snack 2", "Meal 3"];
 export const TABS = ["Home", "Train", "Body", "Food", "Brief"];
 
+// Common quick-portion presets (grams). Users can add their own to portion_library.
+export const QUICK_PORTIONS = [
+  { label: "30g", grams: 30 },
+  { label: "50g", grams: 50 },
+  { label: "100g", grams: 100 },
+  { label: "150g", grams: 150 },
+  { label: "200g", grams: 200 },
+  { label: "250g", grams: 250 },
+];
+
 export const EXCLUDABLE = [
   { tag: "eggs", label: "Eggs" },
   { tag: "dairy", label: "Dairy" },
@@ -107,63 +138,64 @@ export const EXCLUDABLE = [
 
 export const FOOD_PLAN: Record<string, Array<{
   name: string; desc: string; kcal: number; protein: number;
+  carbs?: number; fat?: number;
   ingr: string[]; steps: string[]; tags: string[];
 }>> = {
   "Meal 1": [
-    { name: "Chicken Sausage Muffin Plate", desc: "Chicken sausages, muffin, pineapple, spinach", kcal: 510, protein: 47,
+    { name: "Chicken Sausage Muffin Plate", desc: "Chicken sausages, muffin, pineapple, spinach", kcal: 510, protein: 47, carbs: 50, fat: 12,
       ingr: ["3 lean chicken sausages", "1 wholemeal English muffin", "150g fresh pineapple", "Handful spinach", "1 tsp brown sauce"],
       steps: ["Grill or air-fry sausages", "Toast the muffin", "Wilt spinach 60s", "Serve with pineapple"], tags: ["chicken", "gluten"] },
-    { name: "Steak Breakfast Hash", desc: "Lean steak, potatoes, mushrooms, tomato, pineapple", kcal: 560, protein: 52,
+    { name: "Steak Breakfast Hash", desc: "Lean steak, potatoes, mushrooms, tomato, pineapple", kcal: 560, protein: 52, carbs: 55, fat: 14,
       ingr: ["150g lean steak strips", "250g potatoes, diced", "150g mushrooms", "1 large tomato", "100g pineapple", "1 tsp olive oil"],
       steps: ["Microwave potatoes 5 min", "Pan-fry with oil and paprika", "Add mushrooms 3 min", "Sear steak", "Plate with pineapple"], tags: ["beef"] },
-    { name: "Turkey Bagel Stack", desc: "Cooked turkey, bagel thin, light cheese, pineapple", kcal: 500, protein: 50,
+    { name: "Turkey Bagel Stack", desc: "Cooked turkey, bagel thin, light cheese, pineapple", kcal: 500, protein: 50, carbs: 48, fat: 10,
       ingr: ["180g cooked turkey breast", "1 bagel thin", "20g light cheese", "Lettuce", "100g pineapple"],
       steps: ["Toast bagel thin", "Warm turkey", "Build with cheese and leaves", "Pineapple on side"], tags: ["turkey", "gluten", "dairy"] },
   ],
   "Snack 1": [
-    { name: "Whey & Pineapple Slush", desc: "Whey, pineapple, ice, water", kcal: 250, protein: 30,
+    { name: "Whey & Pineapple Slush", desc: "Whey, pineapple, ice, water", kcal: 250, protein: 30, carbs: 20, fat: 3,
       ingr: ["1 scoop whey", "150g pineapple", "Ice", "200ml water"],
       steps: ["Blend 30s", "Drink slowly"], tags: ["whey"] },
-    { name: "Chicken Snack Box", desc: "Cooked chicken, pineapple, cucumber", kcal: 300, protein: 38,
+    { name: "Chicken Snack Box", desc: "Cooked chicken, pineapple, cucumber", kcal: 300, protein: 38, carbs: 20, fat: 8,
       ingr: ["140g cooked chicken", "150g pineapple", "½ cucumber", "Chilli flakes"],
       steps: ["Slice and pack", "Season before eating"], tags: ["chicken"] },
   ],
   "Meal 2": [
-    { name: "Firecracker Chicken Rice Bowl", desc: "Chicken, jasmine rice, broccoli, chilli sauce", kcal: 620, protein: 58,
+    { name: "Firecracker Chicken Rice Bowl", desc: "Chicken, jasmine rice, broccoli, chilli sauce", kcal: 620, protein: 58, carbs: 65, fat: 12,
       ingr: ["220g chicken breast", "220g cooked rice", "200g broccoli", "1 tbsp sweet chilli", "1 tbsp soy"],
       steps: ["Cook chicken in strips", "Steam broccoli", "Stir sauce", "Add rice and toss"], tags: ["chicken", "rice"] },
-    { name: "Turkey Taco Rice Box", desc: "Turkey mince, rice, salsa, lettuce, cheese", kcal: 610, protein: 55,
+    { name: "Turkey Taco Rice Box", desc: "Turkey mince, rice, salsa, lettuce, cheese", kcal: 610, protein: 55, carbs: 60, fat: 14,
       ingr: ["220g 5% turkey mince", "200g rice", "100g salsa", "Lettuce", "20g light cheese"],
       steps: ["Brown turkey", "Warm rice", "Build bowl", "Add lime"], tags: ["turkey", "rice", "dairy"] },
-    { name: "Chicken Gyros Plate", desc: "Chicken, flatbread, salad, garlic sauce", kcal: 650, protein: 60,
+    { name: "Chicken Gyros Plate", desc: "Chicken, flatbread, salad, garlic sauce", kcal: 650, protein: 60, carbs: 55, fat: 16,
       ingr: ["220g chicken", "1 small flatbread", "Salad", "2 tbsp light garlic sauce", "Lemon"],
       steps: ["Season with lemon, oregano", "Grill chicken", "Warm flatbread", "Plate"], tags: ["chicken", "gluten", "dairy"] },
-    { name: "Beef & Potato Bowl", desc: "Lean mince, potatoes, green beans, gravy", kcal: 620, protein: 55,
+    { name: "Beef & Potato Bowl", desc: "Lean mince, potatoes, green beans, gravy", kcal: 620, protein: 55, carbs: 58, fat: 15,
       ingr: ["220g 5% beef mince", "300g potatoes", "180g green beans", "150ml stock"],
       steps: ["Boil potatoes", "Brown mince", "Steam beans", "Make gravy"], tags: ["beef"] },
   ],
   "Snack 2": [
-    { name: "Chicken Rice Cakes", desc: "Chicken, rice cakes, hot sauce", kcal: 280, protein: 35,
+    { name: "Chicken Rice Cakes", desc: "Chicken, rice cakes, hot sauce", kcal: 280, protein: 35, carbs: 25, fat: 6,
       ingr: ["120g cooked chicken", "3 rice cakes", "Hot sauce", "Cucumber"],
       steps: ["Top rice cakes", "Add sauce"], tags: ["chicken"] },
-    { name: "Turkey & Pretzel Box", desc: "Cooked turkey, pretzels, pineapple", kcal: 330, protein: 34,
+    { name: "Turkey & Pretzel Box", desc: "Cooked turkey, pretzels, pineapple", kcal: 330, protein: 34, carbs: 35, fat: 6,
       ingr: ["120g cooked turkey", "30g pretzels", "100g pineapple"],
       steps: ["Pack together"], tags: ["turkey", "gluten"] },
-    { name: "Beef Biltong & Banana", desc: "Biltong, banana, rice cakes", kcal: 320, protein: 32,
+    { name: "Beef Biltong & Banana", desc: "Biltong, banana, rice cakes", kcal: 320, protein: 32, carbs: 40, fat: 5,
       ingr: ["60g biltong", "1 banana", "2 rice cakes"],
       steps: ["No prep"], tags: ["beef"] },
   ],
   "Meal 3": [
-    { name: "Katsu-Style Chicken Bowl", desc: "Chicken, rice, peas, curry sauce", kcal: 680, protein: 60,
+    { name: "Katsu-Style Chicken Bowl", desc: "Chicken, rice, peas, curry sauce", kcal: 680, protein: 60, carbs: 72, fat: 15,
       ingr: ["220g chicken", "220g rice", "100g peas", "100g carrots", "150ml katsu sauce"],
       steps: ["Cook chicken", "Warm rice", "Heat sauce", "Top with spring onion"], tags: ["chicken", "rice"] },
-    { name: "Lean Burger Plate", desc: "Beef patties, wedges, salad", kcal: 690, protein: 58,
+    { name: "Lean Burger Plate", desc: "Beef patties, wedges, salad", kcal: 690, protein: 58, carbs: 62, fat: 20,
       ingr: ["220g 5% beef mince", "350g potato wedges", "Big salad", "1 tbsp light burger sauce"],
       steps: ["Shape patties", "Bake wedges", "Pan-fry patties", "Plate"], tags: ["beef", "gluten"] },
-    { name: "Chicken Fajita Rice", desc: "Chicken, rice, onions, mushrooms, salsa", kcal: 640, protein: 58,
+    { name: "Chicken Fajita Rice", desc: "Chicken, rice, onions, mushrooms, salsa", kcal: 640, protein: 58, carbs: 65, fat: 12,
       ingr: ["220g chicken", "220g rice", "1 onion", "150g mushrooms", "100g salsa"],
       steps: ["Cook chicken", "Add veg", "Warm rice", "Serve"], tags: ["chicken", "rice"] },
-    { name: "Turkey Meatball Pasta", desc: "Turkey meatballs, pasta, tomato sauce", kcal: 670, protein: 58,
+    { name: "Turkey Meatball Pasta", desc: "Turkey meatballs, pasta, tomato sauce", kcal: 670, protein: 58, carbs: 68, fat: 15,
       ingr: ["220g 5% turkey mince", "75g dry pasta", "200g passata", "Garlic, oregano"],
       steps: ["Shape meatballs", "Brown", "Simmer with passata", "Cook pasta"], tags: ["turkey", "gluten", "dairy"] },
   ],

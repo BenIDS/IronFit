@@ -3,12 +3,13 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { C, PLAN, SCALE, MEALS, TABS, FOOD_PLAN, EXCLUDABLE } from "@/lib/constants";
+import { C, PLAN, SCALE, MEALS, TABS, FOOD_PLAN, MACRO_COLORS } from "@/lib/constants";
 import { Btn, Card, Stat, SectionLabel } from "./ui";
 import {
-  WorkoutForm, BodyForm, FoodForm, ProfileForm,
-  CustomiseModal, RecipeModal, PhotoLogger,
+  WorkoutForm, BodyForm, CustomiseModal, RecipeModal, PhotoLogger,
 } from "./modals";
+import { ProfileForm } from "./ProfileForm";
+import { FoodLogger } from "./FoodLogger";
 
 type Props = {
   userEmail: string;
@@ -24,6 +25,18 @@ function daysUntil(dateStr: string | null) {
   if (!dateStr) return null;
   const target = new Date(dateStr + "T00:00:00");
   return Math.ceil((target.getTime() - Date.now()) / 86400000);
+}
+
+// Deduplicate recent meals — keep the most recent instance of each unique meal (grouped by product_name or description)
+function buildRecentFoods(food: any[], limit = 15): any[] {
+  const seen = new Map<string, any>();
+  for (const f of food) {
+    const key = (f.product_name || f.description || "").trim().toLowerCase();
+    if (!key) continue;
+    if (!seen.has(key)) seen.set(key, f);
+    if (seen.size >= limit) break;
+  }
+  return Array.from(seen.values());
 }
 
 function coachMessage(workouts: any[], food: any[], hydration: any[], profile: any, todayKey: string) {
@@ -62,6 +75,24 @@ function coachMessage(workouts: any[], food: any[], hydration: any[], profile: a
   return { tone: "Good", title: "Building momentum", body: `${last7} sessions this week. Consistency beats intensity.` };
 }
 
+// ─── Macro bar sub-component ───
+function MacroBar({ label, value, target, unit, color }: {
+  label: string; value: number; target: number; unit: string; color: string;
+}) {
+  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: color, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div className="num" style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, letterSpacing: -0.5 }}>
+        {Math.round(value)}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>/{target}{unit}</span>
+      </div>
+      <div style={{ height: 6, background: C.surface, borderRadius: 3, marginTop: 8, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3, transition: "width 0.4s" }} />
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard(props: Props) {
   const router = useRouter();
   const supabase = supabaseBrowser();
@@ -78,10 +109,13 @@ export default function Dashboard(props: Props) {
   const [recipeMeal, setRecipeMeal] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [initialLoggerTab, setInitialLoggerTab] = useState("recent");
 
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  // ── Handlers ──
+  const recentFoods = useMemo(() => buildRecentFoods(food), [food]);
+
+  // ── Save handlers ──
   const addWorkout = async (w: any) => {
     setSaving(true);
     const { data, error } = await supabase.from("workouts").insert({
@@ -97,8 +131,7 @@ export default function Dashboard(props: Props) {
   const addBody = async (b: any) => {
     setSaving(true);
     const { data, error } = await supabase.from("body_stats").insert({
-      user_id: (await supabase.auth.getUser()).data.user!.id,
-      ...b,
+      user_id: (await supabase.auth.getUser()).data.user!.id, ...b,
     }).select().single();
     setSaving(false);
     if (error) { alert("Save failed: " + error.message); return; }
@@ -111,7 +144,6 @@ export default function Dashboard(props: Props) {
     const userId = (await supabase.auth.getUser()).data.user!.id;
     let photoPath: string | null = null;
 
-    // Upload photo if present
     if (f.photoBlob) {
       const filename = `${userId}/${Date.now()}.jpg`;
       const { error: uploadErr } = await supabase.storage
@@ -129,9 +161,14 @@ export default function Dashboard(props: Props) {
       user_id: userId,
       date: f.date, meal: f.meal,
       description: f.description,
+      product_name: f.product_name || null,
+      portion_g: f.portion_g || null,
+      barcode: f.barcode || null,
+      source: f.source || "manual",
       kcal: f.kcal, protein_g: f.protein_g,
+      carbs_g: f.carbs_g || null, fat_g: f.fat_g || null,
       photo_path: photoPath,
-      ai_analysis: f.ai_analysis,
+      ai_analysis: f.ai_analysis || null,
     }).select().single();
     setSaving(false);
     if (error) { alert("Save failed: " + error.message); return; }
@@ -185,7 +222,10 @@ export default function Dashboard(props: Props) {
     await addFood({
       date: todayKey, meal: mealType,
       description: `${template.name} — ${template.desc}`,
+      product_name: template.name,
+      source: "plan",
       protein_g: template.protein, kcal: template.kcal,
+      carbs_g: template.carbs, fat_g: template.fat,
     });
     setRecipeMeal(null);
   };
@@ -212,6 +252,12 @@ export default function Dashboard(props: Props) {
     }
   };
 
+  // ── Openers ──
+  const openLogger = (t: string) => {
+    setInitialLoggerTab(t);
+    setModal("food-logger");
+  };
+
   // ── Computed ──
   const visibleMeals = (mealType: string) =>
     (FOOD_PLAN[mealType] || []).filter(m => {
@@ -228,6 +274,8 @@ export default function Dashboard(props: Props) {
   const todayFood = food.filter(f => f.date === todayKey);
   const todayProtein = todayFood.reduce((s, f) => s + (Number(f.protein_g) || 0), 0);
   const todayKcal = todayFood.reduce((s, f) => s + (Number(f.kcal) || 0), 0);
+  const todayCarbs = todayFood.reduce((s, f) => s + (Number(f.carbs_g) || 0), 0);
+  const todayFat = todayFood.reduce((s, f) => s + (Number(f.fat_g) || 0), 0);
   const todayHydRow = hydration.find(h => h.date === todayKey);
   const todayWater = todayHydRow?.ml || 0;
   const todaySessions = workouts.filter(w => w.date === todayKey).length;
@@ -235,8 +283,9 @@ export default function Dashboard(props: Props) {
 
   const proteinTarget = profile?.protein_target_g || 220;
   const kcalTarget = profile?.kcal_target || 2400;
+  const carbTarget = profile?.carb_target_g || 240;
+  const fatTarget = profile?.fat_target_g || 80;
   const waterTarget = profile?.hydration_target_ml || 4500;
-  const proteinPct = Math.min(100, Math.round((todayProtein / proteinTarget) * 100));
   const waterPct = Math.min(100, Math.round((todayWater / waterTarget) * 100));
 
   const coach = coachMessage(workouts, food, hydration, profile, todayKey);
@@ -319,50 +368,43 @@ export default function Dashboard(props: Props) {
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 4, fontWeight: 500 }}>days to go</div>
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
-                  <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>KCAL</div><div className="num" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{kcalTarget}</div></div>
-                  <div><div style={{ fontSize: 11, color: C.orange, fontWeight: 500 }}>PROTEIN</div><div className="num" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{proteinTarget}g</div></div>
-                  <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>STEPS</div><div className="num" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{profile.step_goal || "10k"}</div></div>
-                </div>
               </Card>
             )}
 
-            {/* Today */}
+            {/* Today Macros — 4-bar grid */}
             <Card>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
                 <div style={{ fontSize: 13, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Today</div>
                 <div className="num" style={{ fontSize: 12, color: C.dim }}>{todayKey}</div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
-                <div>
-                  <div style={{ fontSize: 12, color: C.orange, fontWeight: 600, marginBottom: 6 }}>PROTEIN</div>
-                  <div className="num" style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, letterSpacing: -1 }}>
-                    {Math.round(todayProtein)}<span style={{ fontSize: 15, color: C.muted, fontWeight: 500 }}>/{proteinTarget}g</span>
-                  </div>
-                  <div style={{ height: 8, background: C.surface, borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${proteinPct}%`, background: C.orange, borderRadius: 4, transition: "width 0.4s" }} />
-                  </div>
+                <MacroBar label="kcal" value={todayKcal} target={kcalTarget} unit="" color={MACRO_COLORS.kcal} />
+                <MacroBar label="protein" value={todayProtein} target={proteinTarget} unit="g" color={MACRO_COLORS.protein} />
+                <MacroBar label="carbs" value={todayCarbs} target={carbTarget} unit="g" color={MACRO_COLORS.carbs} />
+                <MacroBar label="fat" value={todayFat} target={fatTarget} unit="g" color={MACRO_COLORS.fat} />
+              </div>
+
+              {/* Water */}
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: C.blue, fontWeight: 600, marginBottom: 6 }}>WATER</div>
+                <div className="num" style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>
+                  {(todayWater / 1000).toFixed(1)}<span style={{ fontSize: 13, color: C.muted, fontWeight: 500 }}>/{(waterTarget / 1000).toFixed(1)}L</span>
                 </div>
-                <div>
-                  <div style={{ fontSize: 12, color: C.blue, fontWeight: 600, marginBottom: 6 }}>WATER</div>
-                  <div className="num" style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, letterSpacing: -1 }}>
-                    {(todayWater / 1000).toFixed(1)}<span style={{ fontSize: 15, color: C.muted, fontWeight: 500 }}>/{(waterTarget / 1000).toFixed(1)}L</span>
-                  </div>
-                  <div style={{ height: 8, background: C.surface, borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${waterPct}%`, background: C.blue, borderRadius: 4, transition: "width 0.4s" }} />
-                  </div>
+                <div style={{ height: 6, background: C.surface, borderRadius: 3, marginTop: 8, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${waterPct}%`, background: C.blue, borderRadius: 3, transition: "width 0.4s" }} />
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
-                <Stat label="kcal" value={todayKcal || "—"} unit="" />
-                <Stat label="Sessions" value={todaySessions} unit="" color={todaySessions > 0 ? C.accent : C.textHi} />
-                <Stat label="Steps" value={todaySteps ? `${(todaySteps / 1000).toFixed(1)}k` : "—"} unit="" />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
                 <Btn sm color={C.blue} ghost onClick={() => addWater(250)}>+250</Btn>
                 <Btn sm color={C.blue} ghost onClick={() => addWater(500)}>+500</Btn>
                 <Btn sm color={C.blue} ghost onClick={() => addWater(1000)}>+1L</Btn>
                 <Btn sm color={C.muted} ghost onClick={() => addWater(-250)}>–250</Btn>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                <Stat label="Sessions" value={todaySessions} unit="" color={todaySessions > 0 ? C.accent : C.textHi} />
+                <Stat label="Steps" value={todaySteps ? `${(todaySteps / 1000).toFixed(1)}k` : "—"} unit="" />
               </div>
             </Card>
 
@@ -377,10 +419,12 @@ export default function Dashboard(props: Props) {
             </Card>
 
             <SectionLabel>Quick Log</SectionLabel>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
               <Btn color={C.accent} onClick={() => setModal("workout")}>+ Workout</Btn>
-              <Btn color={C.orange} onClick={() => setModal("scan")}>📷 Scan Meal</Btn>
-              <Btn color={C.orange} ghost onClick={() => setModal("food")}>+ Meal</Btn>
+              <Btn color={C.orange} onClick={() => openLogger("recent")}>+ Meal</Btn>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+              <Btn color={C.orange} ghost onClick={() => openLogger("scan")}>📷 Scan Barcode</Btn>
               <Btn color={C.blue} onClick={() => setModal("body")}>+ Body Stats</Btn>
             </div>
 
@@ -437,12 +481,8 @@ export default function Dashboard(props: Props) {
                       {e.setLog?.length > 0 ? (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
                           {e.setLog.map((s: any, si: number) => (
-                            <div key={si} className="num" style={{
-                              background: C.surface, borderRadius: 6,
-                              padding: "4px 10px", fontSize: 12, color: C.dim,
-                            }}>
-                              <span style={{ color: C.muted, fontWeight: 700 }}>{si + 1}</span>
-                              {" "}{s.reps || "?"}
+                            <div key={si} className="num" style={{ background: C.surface, borderRadius: 6, padding: "4px 10px", fontSize: 12, color: C.dim }}>
+                              <span style={{ color: C.muted, fontWeight: 700 }}>{si + 1}</span>{" "}{s.reps || "?"}
                               {s.weight && <span style={{ color: p?.color }}> @ {s.weight}kg</span>}
                               {s.rir && <span style={{ color: C.muted, marginLeft: 4 }}>· {s.rir} RIR</span>}
                             </div>
@@ -456,7 +496,7 @@ export default function Dashboard(props: Props) {
                       {e.notes && <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic", marginTop: 4 }}>{e.notes}</div>}
                     </div>
                   ))}
-                  {w.notes && <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", marginTop: 6, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>"{w.notes}"</div>}
+                  {w.notes && <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", marginTop: 6, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>&quot;{w.notes}&quot;</div>}
                 </Card>
               );
             })}
@@ -499,10 +539,15 @@ export default function Dashboard(props: Props) {
 
             {foodView === "LOG" && (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                  <Btn color={C.orange} onClick={() => setModal("scan")}>📷 Scan</Btn>
-                  <Btn color={C.orange} ghost onClick={() => setModal("food")}>+ Manual</Btn>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <Btn color={C.orange} onClick={() => openLogger("scan")}>📷 Scan</Btn>
+                  <Btn color={C.orange} ghost onClick={() => openLogger("search")}>🔎 Search</Btn>
                 </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+                  <Btn color={C.orange} ghost onClick={() => setModal("scan")}>✨ AI Photo</Btn>
+                  <Btn color={C.orange} ghost onClick={() => openLogger("manual")}>✏ Manual</Btn>
+                </div>
+
                 {food.length === 0 && <div style={{ color: C.dim, textAlign: "center", padding: 40, fontSize: 15 }}>No meals logged yet</div>}
                 {food.map(f => (
                   <FoodCard key={f.id} f={f} onDelete={() => delItem("food_logs", f.id, setFood, food)} />
@@ -564,7 +609,7 @@ export default function Dashboard(props: Props) {
 
       {modal === "workout" && <WorkoutForm onSave={addWorkout} onClose={() => setModal(null)} workouts={workouts} />}
       {modal === "body" && <BodyForm onSave={addBody} onClose={() => setModal(null)} />}
-      {modal === "food" && <FoodForm onSave={addFood} onClose={() => setModal(null)} />}
+      {modal === "food-logger" && <FoodLogger onSave={addFood} onClose={() => setModal(null)} recentFoods={recentFoods} initialTab={initialLoggerTab} />}
       {modal === "scan" && <PhotoLogger onSave={addFood} onClose={() => setModal(null)} />}
       {modal === "profile" && <ProfileForm profile={profile} onSave={saveProfile} onClose={() => setModal(null)} />}
       {modal === "customise" && <CustomiseModal prefs={prefs} onSave={savePrefs} onClose={() => setModal(null)} />}
@@ -573,7 +618,7 @@ export default function Dashboard(props: Props) {
   );
 }
 
-// ── Food card sub-component with photo signed URL ──
+// ─── Food card sub-component ───
 function FoodCard({ f, onDelete }: any) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
@@ -581,27 +626,34 @@ function FoodCard({ f, onDelete }: any) {
     if (!f.photo_path) return;
     (async () => {
       const supabase = supabaseBrowser();
-      const { data } = await supabase.storage
-        .from("meal-photos")
-        .createSignedUrl(f.photo_path, 3600);
+      const { data } = await supabase.storage.from("meal-photos").createSignedUrl(f.photo_path, 3600);
       if (data) setPhotoUrl(data.signedUrl);
     })();
   }, [f.photo_path]);
+
+  const sourceEmoji: Record<string, string> = {
+    barcode: "📷", search: "🔎", "ai-photo": "✨", manual: "✏", plan: "📋", recent: "⏱",
+  };
 
   return (
     <Card accent={C.orange}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
         <div>
-          <div style={{ fontSize: 14, color: C.orange, fontWeight: 700 }}>{f.meal}</div>
+          <div style={{ fontSize: 14, color: C.orange, fontWeight: 700 }}>
+            {f.source && sourceEmoji[f.source] && <span style={{ marginRight: 6 }}>{sourceEmoji[f.source]}</span>}
+            {f.meal}
+          </div>
           <div className="num" style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{f.date}</div>
         </div>
         <button onClick={onDelete} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 13 }}>Delete</button>
       </div>
       {photoUrl && <img src={photoUrl} alt="meal" style={{ width: "100%", borderRadius: 8, marginBottom: 10, maxHeight: 240, objectFit: "cover" }} />}
       <div style={{ fontSize: 14, color: C.text, lineHeight: 1.5 }}>{f.description}</div>
-      <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 13, color: C.muted }}>
-        {f.kcal && <span className="num">{f.kcal} kcal</span>}
-        {f.protein_g && <span className="num">{f.protein_g}g protein</span>}
+      <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 13, color: C.muted, flexWrap: "wrap" }}>
+        {f.kcal != null && <span className="num">{f.kcal} kcal</span>}
+        {f.protein_g != null && <span className="num" style={{ color: MACRO_COLORS.protein }}>{f.protein_g}gP</span>}
+        {f.carbs_g != null && <span className="num" style={{ color: MACRO_COLORS.carbs }}>{f.carbs_g}gC</span>}
+        {f.fat_g != null && <span className="num" style={{ color: MACRO_COLORS.fat }}>{f.fat_g}gF</span>}
         {f.ai_analysis?.confidence && (
           <span style={{ color: f.ai_analysis.confidence === "high" ? C.green : f.ai_analysis.confidence === "medium" ? C.amber : C.red, marginLeft: "auto" }}>
             ✨ {f.ai_analysis.confidence}

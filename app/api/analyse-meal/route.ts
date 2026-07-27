@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
-  // Auth check — only logged-in users
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,22 +14,21 @@ export async function POST(request: Request) {
   const { imageBase64, mediaType } = await request.json();
   if (!imageBase64) return NextResponse.json({ error: "Missing image" }, { status: 400 });
 
-  // Load user's profile for calibrated context
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
 
   const allMeals = Object.entries(FOOD_PLAN).flatMap(([type, meals]) =>
     meals.map(m => ({ ...m, type }))
   );
   const templateList = allMeals.map(m =>
-    `- ${m.name}: ${m.desc} (${m.kcal} kcal, ${m.protein}g protein)`
+    `- ${m.name}: ${m.desc} (${m.kcal} kcal, ${m.protein}g protein${m.carbs ? `, ${m.carbs}g carbs` : ""}${m.fat ? `, ${m.fat}g fat` : ""})`
   ).join("\n");
 
   const goalLine = profile?.phase_goal_label
     ? `Goal: ${profile.phase_goal_label} on ${profile.phase_goal_date}`
     : "";
   const targetLine = profile?.kcal_target
-    ? `Daily target: ${profile.kcal_target} kcal, ${profile.protein_target_g}g protein`
-    : "Daily target: 2400 kcal, 220g protein";
+    ? `Daily target: ${profile.kcal_target} kcal, ${profile.protein_target_g}g protein${profile.carb_target_g ? `, ${profile.carb_target_g}g carbs` : ""}${profile.fat_target_g ? `, ${profile.fat_target_g}g fat` : ""}`
+    : "Daily target: 2400 kcal, 220g protein, 240g carbs, 80g fat";
 
   const prompt = `You are a nutrition analyst. Analyze this meal photo and return ONLY valid JSON — no preamble, no markdown fences, no explanation outside the JSON.
 
@@ -47,6 +45,8 @@ Return JSON in this exact structure:
   "ingredients": ["array of identified ingredients with rough quantities"],
   "estimated_kcal": 500,
   "estimated_protein_g": 40,
+  "estimated_carbs_g": 50,
+  "estimated_fat_g": 15,
   "matched_template": "exact template name from list above, or null if no good match",
   "match_confidence": "high|medium|low|none",
   "overall_confidence": "high|medium|low",
@@ -80,9 +80,6 @@ Be conservative — err higher on calorie estimates when unclear. Flag hidden oi
     return NextResponse.json(parsed);
   } catch (err: any) {
     console.error("analyse-meal error:", err);
-    return NextResponse.json(
-      { error: err.message || "Analysis failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Analysis failed" }, { status: 500 });
   }
 }
