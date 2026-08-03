@@ -3,23 +3,55 @@
 import { useState, useEffect } from "react";
 import { Btn, Input, Label, Card, Modal } from "./ui";
 import { C, PLAN, SCALE, MEALS, EXCLUDABLE, MACRO_COLORS } from "@/lib/constants";
+import { ExercisePicker, type PickedExercise } from "./ExercisePicker";
+import { ExerciseDemo } from "./ExerciseDemo";
+import { findExerciseId } from "@/lib/exercises";
 
 // ═══════════════════════════════════════════════════════════════
-// WORKOUT FORM — with per-set logging
+// WORKOUT FORM — per-set logging + add/remove/swap + demo images
 // ═══════════════════════════════════════════════════════════════
+
+type ExDef = {
+  name: string;
+  sets?: number;
+  reps?: string;
+  startWeight?: number;
+  rule?: string;
+  exerciseId?: string; // free-exercise-db catalog ID for demo lookup
+  custom?: boolean;    // true if user added mid-session (not from default plan)
+};
+
+type ExState = {
+  sets: { reps: string; weight: string; rir: string }[];
+  notes: string;
+};
 
 export function WorkoutForm({ onSave, onClose, workouts }: any) {
   const [type, setType] = useState("push");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [ex, setEx] = useState<any>({});
+  const [ex, setEx] = useState<Record<string, ExState>>({});
   const [notes, setNotes] = useState("");
   const [steps, setSteps] = useState("");
+  const [exerciseList, setExerciseList] = useState<ExDef[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState<Set<string>>(new Set());
+
   const p = (PLAN as any)[type];
   const lastSession = workouts.find((w: any) => w.type === type);
 
+  // When session type changes, rebuild the exercise list from the plan
+  // and pre-populate exercise state from last session weights.
   useEffect(() => {
-    const initial: any = {};
-    p.exercises.forEach((exDef: any) => {
+    // Enrich plan exercises with catalog IDs from name-mapping
+    const listWithIds: ExDef[] = p.exercises.map((exDef: any) => ({
+      ...exDef,
+      exerciseId: findExerciseId(exDef.name),
+    }));
+    setExerciseList(listWithIds);
+
+    // Init state for each exercise: N empty sets (N = target set count)
+    const initial: Record<string, ExState> = {};
+    listWithIds.forEach(exDef => {
       const lastLog = lastSession?.exercises?.find((e: any) => e.name === exDef.name);
       const targetSets = exDef.sets || 3;
       initial[exDef.name] = {
@@ -31,18 +63,20 @@ export function WorkoutForm({ onSave, onClose, workouts }: any) {
       };
     });
     setEx(initial);
+    setDemoOpen(new Set()); // reset demo state on session change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
   const updSet = (exName: string, setIdx: number, field: string, value: string) => {
-    setEx((prev: any) => {
+    setEx(prev => {
       const cur = prev[exName] || { sets: [], notes: "" };
-      const newSets = cur.sets.map((s: any, i: number) => i === setIdx ? { ...s, [field]: value } : s);
+      const newSets = cur.sets.map((s, i) => i === setIdx ? { ...s, [field]: value } : s);
       return { ...prev, [exName]: { ...cur, sets: newSets } };
     });
   };
 
   const addSet = (exName: string) => {
-    setEx((prev: any) => {
+    setEx(prev => {
       const cur = prev[exName] || { sets: [], notes: "" };
       const lastSet = cur.sets[cur.sets.length - 1] || { weight: "", reps: "", rir: "" };
       return { ...prev, [exName]: { ...cur, sets: [...cur.sets, { reps: "", weight: lastSet.weight || "", rir: "" }] } };
@@ -50,27 +84,81 @@ export function WorkoutForm({ onSave, onClose, workouts }: any) {
   };
 
   const removeSet = (exName: string, setIdx: number) => {
-    setEx((prev: any) => {
+    setEx(prev => {
       const cur = prev[exName] || { sets: [], notes: "" };
-      return { ...prev, [exName]: { ...cur, sets: cur.sets.filter((_: any, i: number) => i !== setIdx) } };
+      return { ...prev, [exName]: { ...cur, sets: cur.sets.filter((_, i) => i !== setIdx) } };
     });
   };
 
   const updExNotes = (exName: string, val: string) => {
-    setEx((prev: any) => ({ ...prev, [exName]: { ...(prev[exName] || { sets: [] }), notes: val } }));
+    setEx(prev => ({ ...prev, [exName]: { ...(prev[exName] || { sets: [] }), notes: val } }));
+  };
+
+  // Add exercise mid-session (from picker)
+  const addExercise = (picked: PickedExercise) => {
+    // Prevent duplicates
+    if (exerciseList.some(e => e.name.toLowerCase() === picked.name.toLowerCase())) {
+      setPickerOpen(false);
+      return;
+    }
+    const newDef: ExDef = {
+      name: picked.name,
+      sets: 3,
+      reps: "8-12",
+      exerciseId: picked.exerciseId,
+      custom: true,
+    };
+    setExerciseList(prev => [...prev, newDef]);
+    setEx(prev => ({
+      ...prev,
+      [picked.name]: {
+        sets: Array.from({ length: 3 }, () => ({ reps: "", weight: "", rir: "" })),
+        notes: "",
+      },
+    }));
+    setPickerOpen(false);
+  };
+
+  // Remove exercise from this session
+  const removeExercise = (exName: string) => {
+    setExerciseList(prev => prev.filter(e => e.name !== exName));
+    setEx(prev => {
+      const next = { ...prev };
+      delete next[exName];
+      return next;
+    });
+    setDemoOpen(prev => {
+      const next = new Set(prev);
+      next.delete(exName);
+      return next;
+    });
+  };
+
+  // Toggle demo card visibility
+  const toggleDemo = (exName: string) => {
+    setDemoOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(exName)) next.delete(exName);
+      else next.add(exName);
+      return next;
+    });
   };
 
   const submit = () => {
     const exercises = Object.entries(ex)
-      .map(([name, d]: any) => {
-        const validSets = (d.sets || []).filter((s: any) => s.reps || s.weight);
+      .map(([name, d]) => {
+        const validSets = (d.sets || []).filter(s => s.reps || s.weight);
         if (validSets.length === 0 && !d.notes) return null;
-        const weights = validSets.map((s: any) => parseFloat(s.weight)).filter((w: number) => !isNaN(w));
-        const reps = validSets.map((s: any) => parseInt(s.reps)).filter((r: number) => !isNaN(r));
+        const weights = validSets.map(s => parseFloat(s.weight)).filter(w => !isNaN(w));
+        const reps = validSets.map(s => parseInt(s.reps)).filter(r => !isNaN(r));
+        // Preserve the exerciseId so subsequent sessions can show the demo
+        const exDef = exerciseList.find(e => e.name === name);
         return {
           name,
+          exerciseId: exDef?.exerciseId,
+          custom: exDef?.custom || false,
           sets: validSets.length,
-          reps: reps.length ? (reps.every((r: number) => r === reps[0]) ? String(reps[0]) : `${Math.min(...reps)}-${Math.max(...reps)}`) : "",
+          reps: reps.length ? (reps.every(r => r === reps[0]) ? String(reps[0]) : `${Math.min(...reps)}-${Math.max(...reps)}`) : "",
           weight: weights.length ? Math.max(...weights) : "",
           setLog: validSets,
           notes: d.notes || "",
@@ -81,101 +169,163 @@ export function WorkoutForm({ onSave, onClose, workouts }: any) {
   };
 
   return (
-    <Modal onClose={onClose} title="Log Session">
-      <Label>Session Type</Label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-        {Object.entries(PLAN).map(([k, v]: any) => (
-          <Btn key={k} sm color={v.color} ghost={type !== k} onClick={() => setType(k)}>{v.label}</Btn>
-        ))}
-      </div>
+    <>
+      <Modal onClose={onClose} title="Log Session">
+        <Label>Session Type</Label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+          {Object.entries(PLAN).map(([k, v]: any) => (
+            <Btn key={k} sm color={v.color} ghost={type !== k} onClick={() => setType(k)}>{v.label}</Btn>
+          ))}
+        </div>
 
-      <Label>Date</Label>
-      <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 18 }} />
+        <Label>Date</Label>
+        <Input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ marginBottom: 18 }} />
 
-      <Label>Exercises</Label>
-      {p.exercises.map((exDef: any) => {
-        const lastLog = lastSession?.exercises?.find((e: any) => e.name === exDef.name);
-        const current = ex[exDef.name] || { sets: [], notes: "" };
-        return (
-          <Card key={exDef.name} accent={p.color} style={{ padding: "16px 18px", marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{exDef.name}</div>
-              <div className="num" style={{ fontSize: 12, color: C.muted }}>Target: {exDef.sets}×{exDef.reps}</div>
-            </div>
-            {exDef.rule && <div style={{ fontSize: 12, color: C.dim, marginBottom: 10, fontStyle: "italic" }}>↳ {exDef.rule}</div>}
-            {lastLog?.setLog?.length > 0 && (
-              <div style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
-                <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Last session</div>
-                <div className="num" style={{ fontSize: 12, color: C.accent, fontWeight: 500 }}>
-                  {lastLog.setLog.map((s: any, i: number) => (
-                    <span key={i}>{i > 0 && " · "}{s.reps || "?"}{s.weight && `@${s.weight}`}</span>
-                  ))}
+        <Label>Exercises</Label>
+        {exerciseList.map(exDef => {
+          const lastLog = lastSession?.exercises?.find((e: any) => e.name === exDef.name);
+          const current = ex[exDef.name] || { sets: [], notes: "" };
+          const isDemoOpen = demoOpen.has(exDef.name);
+          const hasDemo = Boolean(exDef.exerciseId);
+          return (
+            <Card key={exDef.name} accent={p.color} style={{ padding: "16px 18px", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 6 }}>
+                    {exDef.name}
+                    {exDef.custom && (
+                      <span style={{
+                        fontSize: 9, color: C.accent, fontWeight: 700,
+                        background: C.accent + "22", padding: "2px 6px",
+                        borderRadius: 8, letterSpacing: 0.5,
+                      }}>ADDED</span>
+                    )}
+                  </div>
+                  {exDef.sets && exDef.reps && (
+                    <div className="num" style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Target: {exDef.sets}×{exDef.reps}</div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  {hasDemo && (
+                    <button
+                      onClick={() => toggleDemo(exDef.name)}
+                      title="Show demo"
+                      style={{
+                        background: isDemoOpen ? C.accent + "33" : "transparent",
+                        border: `1px solid ${isDemoOpen ? C.accent : C.border}`,
+                        color: isDemoOpen ? C.accent : C.muted,
+                        borderRadius: 8, padding: "4px 10px", cursor: "pointer",
+                        fontSize: 12, fontWeight: 700, fontFamily: "inherit",
+                      }}
+                    >?</button>
+                  )}
+                  <button
+                    onClick={() => removeExercise(exDef.name)}
+                    title="Remove from this session"
+                    style={{
+                      background: "transparent", border: `1px solid ${C.border}`,
+                      color: C.muted, borderRadius: 8, padding: "4px 10px", cursor: "pointer",
+                      fontSize: 14, fontFamily: "inherit",
+                    }}
+                  >×</button>
                 </div>
               </div>
-            )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 60px 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textAlign: "center" }}>Set</div>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>Reps</div>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>Weight (kg)</div>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textAlign: "center" }}>RIR</div>
-              <div />
-            </div>
+              {isDemoOpen && exDef.exerciseId && (
+                <ExerciseDemo
+                  exerciseId={exDef.exerciseId}
+                  exerciseName={exDef.name}
+                  onClose={() => toggleDemo(exDef.name)}
+                />
+              )}
 
-            {current.sets.map((set: any, idx: number) => (
-              <div key={idx} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 60px 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                <div className="num" style={{ fontSize: 14, color: C.dim, fontWeight: 700, textAlign: "center" }}>{idx + 1}</div>
-                <Input type="number" inputMode="numeric" placeholder={exDef.reps}
-                  value={set.reps} onChange={e => updSet(exDef.name, idx, "reps", e.target.value)}
-                  style={{ padding: "10px", fontSize: 15, textAlign: "center" }} />
-                <Input type="number" inputMode="decimal" step="0.5" placeholder="kg"
-                  value={set.weight} onChange={e => updSet(exDef.name, idx, "weight", e.target.value)}
-                  style={{ padding: "10px", fontSize: 15, textAlign: "center" }} />
-                <Input type="number" inputMode="numeric" placeholder="—"
-                  value={set.rir} onChange={e => updSet(exDef.name, idx, "rir", e.target.value)}
-                  style={{ padding: "10px 6px", fontSize: 14, textAlign: "center" }} />
-                <button onClick={() => removeSet(exDef.name, idx)} style={{
-                  background: "transparent", border: `1px solid ${C.border}`, color: C.muted,
-                  borderRadius: 8, padding: 0, height: 36, cursor: "pointer", fontSize: 14,
-                }}>×</button>
+              {exDef.rule && <div style={{ fontSize: 12, color: C.dim, marginTop: 8, marginBottom: 10, fontStyle: "italic" }}>↳ {exDef.rule}</div>}
+              {lastLog?.setLog?.length > 0 && (
+                <div style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: C.muted, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Last session</div>
+                  <div className="num" style={{ fontSize: 12, color: C.accent, fontWeight: 500 }}>
+                    {lastLog.setLog.map((s: any, i: number) => (
+                      <span key={i}>{i > 0 && " · "}{s.reps || "?"}{s.weight && `@${s.weight}`}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 60px 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textAlign: "center" }}>Set</div>
+                <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>Reps</div>
+                <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>Weight (kg)</div>
+                <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textAlign: "center" }}>RIR</div>
+                <div />
               </div>
-            ))}
 
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <Btn sm ghost color={p.color} onClick={() => addSet(exDef.name)} style={{ flex: 1, padding: "10px", fontSize: 13 }}>
-                + Add Set
-              </Btn>
-            </div>
+              {current.sets.map((set, idx) => (
+                <div key={idx} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 60px 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                  <div className="num" style={{ fontSize: 14, color: C.dim, fontWeight: 700, textAlign: "center" }}>{idx + 1}</div>
+                  <Input type="number" inputMode="numeric" placeholder={exDef.reps}
+                    value={set.reps} onChange={e => updSet(exDef.name, idx, "reps", e.target.value)}
+                    style={{ padding: "10px", fontSize: 15, textAlign: "center" }} />
+                  <Input type="number" inputMode="decimal" step="0.5" placeholder="kg"
+                    value={set.weight} onChange={e => updSet(exDef.name, idx, "weight", e.target.value)}
+                    style={{ padding: "10px", fontSize: 15, textAlign: "center" }} />
+                  <Input type="number" inputMode="numeric" placeholder="—"
+                    value={set.rir} onChange={e => updSet(exDef.name, idx, "rir", e.target.value)}
+                    style={{ padding: "10px 6px", fontSize: 14, textAlign: "center" }} />
+                  <button onClick={() => removeSet(exDef.name, idx)} style={{
+                    background: "transparent", border: `1px solid ${C.border}`, color: C.muted,
+                    borderRadius: 8, padding: 0, height: 36, cursor: "pointer", fontSize: 14,
+                  }}>×</button>
+                </div>
+              ))}
 
-            <textarea placeholder="Notes on this exercise (optional)"
-              value={current.notes || ""} onChange={e => updExNotes(exDef.name, e.target.value)}
-              style={{
-                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-                color: C.text, fontSize: 12, padding: 10, width: "100%", boxSizing: "border-box",
-                height: 44, resize: "none", fontFamily: "inherit", marginTop: 10,
-              }} />
-          </Card>
-        );
-      })}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <Btn sm ghost color={p.color} onClick={() => addSet(exDef.name)} style={{ flex: 1, padding: "10px", fontSize: 13 }}>
+                  + Add Set
+                </Btn>
+              </div>
 
-      <div style={{ marginTop: 18 }}>
-        <Label>Steps Today</Label>
-        <Input type="number" placeholder="e.g. 13500" value={steps} onChange={e => setSteps(e.target.value)} />
-      </div>
+              <textarea placeholder="Notes on this exercise (optional)"
+                value={current.notes || ""} onChange={e => updExNotes(exDef.name, e.target.value)}
+                style={{
+                  background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+                  color: C.text, fontSize: 12, padding: 10, width: "100%", boxSizing: "border-box",
+                  height: 44, resize: "none", fontFamily: "inherit", marginTop: 10,
+                }} />
+            </Card>
+          );
+        })}
 
-      <div style={{ marginTop: 18, marginBottom: 22 }}>
-        <Label>Session Notes</Label>
-        <textarea placeholder="How did it feel overall?" value={notes} onChange={e => setNotes(e.target.value)}
-          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: 80, resize: "none", fontFamily: "inherit" }} />
-      </div>
+        <Btn ghost color={C.accent} full onClick={() => setPickerOpen(true)} style={{ padding: "14px", marginBottom: 18, fontSize: 14 }}>
+          + Add exercise
+        </Btn>
 
-      <Btn color={p.color} full onClick={submit} style={{ padding: 16, fontSize: 15 }}>Save Session</Btn>
-    </Modal>
+        <div style={{ marginTop: 4 }}>
+          <Label>Steps Today</Label>
+          <Input type="number" placeholder="e.g. 13500" value={steps} onChange={e => setSteps(e.target.value)} />
+        </div>
+
+        <div style={{ marginTop: 18, marginBottom: 22 }}>
+          <Label>Session Notes</Label>
+          <textarea placeholder="How did it feel overall?" value={notes} onChange={e => setNotes(e.target.value)}
+            style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, padding: 12, width: "100%", boxSizing: "border-box", height: 80, resize: "none", fontFamily: "inherit" }} />
+        </div>
+
+        <Btn color={p.color} full onClick={submit} style={{ padding: 16, fontSize: 15 }}>Save Session</Btn>
+      </Modal>
+
+      {pickerOpen && (
+        <ExercisePicker
+          onPick={addExercise}
+          onClose={() => setPickerOpen(false)}
+          excludeNames={exerciseList.map(e => e.name)}
+        />
+      )}
+    </>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// BODY FORM
+// BODY FORM (unchanged)
 // ═══════════════════════════════════════════════════════════════
 
 export function BodyForm({ onSave, onClose }: any) {
@@ -207,7 +357,7 @@ export function BodyForm({ onSave, onClose }: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CUSTOMISE MODAL
+// CUSTOMISE MODAL (unchanged)
 // ═══════════════════════════════════════════════════════════════
 
 export function CustomiseModal({ prefs, onSave, onClose }: any) {
@@ -252,7 +402,7 @@ export function CustomiseModal({ prefs, onSave, onClose }: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// RECIPE MODAL
+// RECIPE MODAL (unchanged)
 // ═══════════════════════════════════════════════════════════════
 
 export function RecipeModal({ meal, mealType, onClose, onLog }: any) {
@@ -301,7 +451,7 @@ export function RecipeModal({ meal, mealType, onClose, onLog }: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PHOTO LOGGER — AI meal photo analysis
+// PHOTO LOGGER — unchanged
 // ═══════════════════════════════════════════════════════════════
 
 async function compressImage(file: File): Promise<{ dataUrl: string; base64: string; blob: Blob }> {
